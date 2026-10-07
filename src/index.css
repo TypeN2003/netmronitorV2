@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/* Drive `dark:` utilities from the .dark class set by ThemeContext (Tailwind v4 defaults to the OS preference) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/*
+ * Readability tuning for both themes.
+ * The UI leans heavily on slate-400/500 for secondary text, which is too faint on white
+ * and on slate-900. Retune those two steps per theme so muted text stays legible.
+ */
+:root:not(.dark) {
+  --color-slate-400: #74839a; /* ~3.9:1 on white (was 2.6:1) */
+  --color-slate-500: #526075; /* ~6.3:1 on white (was 4.8:1) */
+}
+.dark {
+  --color-slate-400: #aab6c7; /* ~8.7:1 on slate-900 */
+  --color-slate-500: #8b9ab0; /* ~6.4:1 on slate-900 (was 3.8:1) */
+  --color-slate-800: #243248; /* slightly lighter card borders / inner panels */
+}
+
+/* Light theme: pale accent text (300/400 shades written for dark backgrounds) gets a readable shade */
+:root:not(.dark) .text-cyan-300, :root:not(.dark) .text-cyan-400 { color: var(--color-cyan-700); }
+:root:not(.dark) .text-sky-300, :root:not(.dark) .text-sky-400 { color: var(--color-sky-700); }
+:root:not(.dark) .text-blue-300, :root:not(.dark) .text-blue-400 { color: var(--color-blue-700); }
+:root:not(.dark) .text-emerald-300, :root:not(.dark) .text-emerald-400 { color: var(--color-emerald-700); }
+:root:not(.dark) .text-green-300, :root:not(.dark) .text-green-400 { color: var(--color-green-700); }
+:root:not(.dark) .text-amber-300, :root:not(.dark) .text-amber-400 { color: var(--color-amber-700); }
+:root:not(.dark) .text-yellow-300, :root:not(.dark) .text-yellow-400 { color: var(--color-yellow-700); }
+:root:not(.dark) .text-rose-300, :root:not(.dark) .text-rose-400 { color: var(--color-rose-700); }
+:root:not(.dark) .text-red-300, :root:not(.dark) .text-red-400 { color: var(--color-red-700); }
+:root:not(.dark) .text-purple-300, :root:not(.dark) .text-purple-400 { color: var(--color-purple-700); }
+:root:not(.dark) .text-indigo-300, :root:not(.dark) .text-indigo-400 { color: var(--color-indigo-700); }
+
+/* Tiny arbitrary font sizes are hard to read; nudge them up one step */
+:root .text-\[9px\] { font-size: 10px; }
+:root .text-\[10px\] { font-size: 11px; }
+:root .text-\[11px\] { font-size: 12px; }
+
+/* Custom scrollbars for dense data grids and topology panels */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}

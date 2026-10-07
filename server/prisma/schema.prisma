@@ -1,0 +1,368 @@
+// NetMonitor database schema.
+// Mirrors src/types/index.ts on the frontend so API responses need no reshaping.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ---------------------------------------------------------------- users
+
+model User {
+  id           String   @id
+  name         String   @unique
+  email        String   @unique
+  passwordHash String
+  role         String // Admin | Engineer | Viewer
+  avatar       String?
+  department   String   @default("Operations")
+  status       String   @default("Active") // Active | Suspended
+  createdAt    String // local-time string, e.g. 2026-10-06 14:05:00
+  lastLogin    String   @default("Never")
+
+  // UserPermissions, flattened into columns
+  canEditDevices       Boolean @default(false)
+  canManageUsers       Boolean @default(false)
+  canEditTopology      Boolean @default(false)
+  canImportConfig      Boolean @default(false)
+  canAcknowledgeAlerts Boolean @default(false)
+  canModifySettings    Boolean @default(false)
+  canRebootDevices     Boolean @default(false)
+
+  resetTokens PasswordReset[]
+}
+
+model PasswordReset {
+  id        String  @id
+  userId    String
+  otpHash   String
+  expiresAt BigInt
+  usedAt    String?
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------- inventory
+
+model Device {
+  id       String @id
+  name     String @unique
+  ip       String @unique
+  mac      String @default("")
+  type     String // Router | Core Switch | Distribution Switch | Edge Switch | Firewall | Server
+  vendor   String @default("Unknown")
+  model    String @default("")
+  location String @default("-")
+  rack     String @default("-")
+
+  // Live state, overwritten by the collector on every poll
+  status         String  @default("offline") // online | warning | offline
+  uptime         String  @default("-")
+  cpu            Int     @default(0)
+  ram            Int     @default(0)
+  temp           Int     @default(0)
+  portsTotal     Int     @default(0)
+  portsUp        Int     @default(0)
+  pingMs         Float   @default(0)
+  trafficInMbps  Float   @default(0)
+  trafficOutMbps Float   @default(0)
+  lastSeen       String  @default("Never")
+  firmware       String  @default("-")
+  config         String? // last archived running-config text
+
+  // SNMP transport
+  snmpVersion   String @default("2c") // 2c | 3
+  snmpPort      Int    @default(161)
+  snmpCommunity String @default("public")
+  // Separate RW community, so day-to-day polling can stay read-only.
+  // Required before the Ports page can shut / no-shut a port over SNMP.
+  snmpWriteCommunity String?
+
+  // SNMPv3 (USM). Ignored when snmpVersion is 2c.
+  snmpV3User          String?
+  snmpV3SecurityLevel String? @default("authPriv") // noAuthNoPriv | authNoPriv | authPriv
+  snmpV3AuthProtocol  String? @default("sha") // md5 | sha | sha224 | sha256 | sha384 | sha512
+  snmpV3AuthKey       String?
+  snmpV3PrivProtocol  String? @default("aes") // des | aes | aes256b | aes256r
+  snmpV3PrivKey       String?
+  snmpV3Context       String?
+
+  pollEnabled Boolean @default(true)
+  // Set when the last poll failed, so the API can explain why a device shows offline
+  lastError    String?
+  lastPolledAt String?
+  // Consecutive failed polls; the collector raises an alert on the first one
+  failCount    Int     @default(0)
+
+  createdAt String
+  updatedAt String
+
+  ports         Port[]
+  backups       Backup[]
+  topologyNodes TopologyNode[]
+  samples       TelemetrySample[]
+}
+
+model Port {
+  id       Int    @id @default(autoincrement())
+  deviceId String
+  ifIndex  Int // SNMP ifIndex, the real identity of the port
+  portId   Int // 1-based position used by the frontend port grid
+
+  name            String
+  status          String  @default("down") // up | down | warning | error
+  fault           String? // crc | errdisable
+  speed           String  @default("-")
+  duplex          String  @default("Auto") // Full | Half | Auto
+  vlan            Int     @default(1)
+  vlanName        String  @default("default")
+  poeWatts        Float   @default(0)
+  inTrafficMbps   Float   @default(0)
+  outTrafficMbps  Float   @default(0)
+  errorDiscards   Int     @default(0)
+  connectedDevice String?
+  connectedMac    String?
+  adminUp         Boolean @default(true)
+  portType        String  @default("RJ45") // RJ45 | SFP+ | QSFP
+
+  // Raw counters kept so the next poll can turn deltas into rates.
+  // Errors are judged on the delta, otherwise a port that had CRCs last year stays red forever.
+  lastInOctets    BigInt?
+  lastOutOctets   BigInt?
+  lastErrorTotal  BigInt?
+  lastFcsErrors   BigInt?
+  lastPolledAt    String?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, ifIndex])
+  @@index([deviceId])
+}
+
+model Vlan {
+  id              Int     @id // the real 802.1Q VLAN id
+  name            String
+  subnet          String  @default("")
+  gateway         String  @default("")
+  activePorts     Int     @default(0)
+  dhcpTotal       Int     @default(0)
+  dhcpUsed        Int     @default(0)
+  trafficRateMbps Float   @default(0)
+  status          String  @default("active") // active | degraded
+  description     String  @default("")
+  // true when the collector learned this VLAN from a device rather than a human adding it
+  discovered      Boolean @default(false)
+}
+
+// ------------------------------------------- wireless (RUCKUS One is V2; stays empty until then)
+
+model AccessPoint {
+  id               String @id
+  name             String
+  ip               String
+  mac              String @default("")
+  location         String @default("-")
+  building         String @default("-")
+  floor            String @default("-")
+  ssidList         String @default("[]") // JSON array
+  channel24        Int    @default(0)
+  channel5         Int    @default(0)
+  channel6         Int?
+  txPowerDbm       Int    @default(0)
+  channelWidthMhz  Int    @default(20)
+  rssiAvg          Int    @default(0)
+  connectedClients Int    @default(0)
+  cpu              Int    @default(0)
+  ram              Int    @default(0)
+  retryRate        Float  @default(0)
+  status           String @default("offline")
+  model            String @default("")
+  uptime           String @default("-")
+}
+
+model ClientSession {
+  id            String  @id
+  hostname      String
+  ip            String
+  mac           String
+  connectedNode String
+  nodeType      String // AP | Switch
+  vlanId        Int     @default(1)
+  ssid          String?
+  band          String?
+  rssi          Int     @default(0)
+  rxRateMbps    Float   @default(0)
+  txRateMbps    Float   @default(0)
+  duration      String  @default("-")
+  osVendor      String  @default("Unknown")
+  osType        String  @default("IoT")
+  status        String  @default("active")
+}
+
+// ---------------------------------------------------------------- topology
+
+model TopologyNode {
+  id          String  @id
+  label       String
+  ip          String  @default("")
+  tier        Int     @default(3)
+  type        String // wan | router | firewall | core_switch | dist_switch | edge_ap | host_group | server
+  status      String  @default("online")
+  x           Float   @default(0)
+  y           Float   @default(0)
+  groupCount  Int?
+  isCollapsed Boolean @default(false)
+  model       String?
+  // When set, the node mirrors the live status of that device
+  deviceId    String?
+
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId])
+}
+
+model TopologyLink {
+  id       String @id
+  source   String
+  target   String
+  speed    String
+  linkType String // fiber_10g | copper_1g | fiber_40g | trunk
+  status   String @default("up") // up | degraded | down
+
+  @@index([source])
+  @@index([target])
+}
+
+// ---------------------------------------------------------------- alerts and logs
+
+model Alert {
+  id             String  @id
+  timestamp      String
+  deviceName     String
+  deviceIp       String
+  severity       String // critical | warning | info
+  category       String
+  message        String
+  categoryTh     String?
+  messageTh      String?
+  status         String  @default("active") // active | acknowledged | resolved
+  acknowledgedBy String?
+  acknowledgedAt String?
+  resolvedAt     String?
+
+  notes AlertNote[]
+
+  @@index([status])
+  @@index([deviceName])
+}
+
+model AlertNote {
+  id        String @id
+  alertId   String
+  author    String
+  role      String
+  timestamp String
+  text      String
+
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId])
+}
+
+model Syslog {
+  id        String @id
+  timestamp String
+  facility  String
+  severity  String // Emergency | Alert | Critical | Error | Warning | Notice | Info
+  host      String
+  ip        String
+  tag       String
+  message   String
+
+  @@index([timestamp])
+}
+
+// ---------------------------------------------------------------- config backups
+
+model Backup {
+  id             String  @id
+  deviceId       String?
+  deviceName     String
+  deviceIp       String
+  deviceType     String
+  versionTag     String
+  timestamp      String
+  sizeKb         Float
+  checksumSha256 String
+  triggeredBy    String
+  triggerType    String // scheduled | manual | pre-change
+  configContent  String
+  format         String // cisco_ios | fortios | json | generic
+  notes          String?
+
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId])
+}
+
+// ---------------------------------------------------------------- settings and history
+
+model Settings {
+  id                    Int     @id @default(1)
+  snmpInterval          Int     @default(300)
+  pingTimeoutMs         Int     @default(2000)
+  packetLossThreshold   Int     @default(5)
+  telegramBotToken      String  @default("")
+  telegramChatId        String  @default("")
+  // Notifications are on as soon as a token and chat id exist; this switch pauses
+  // them without making the operator wipe the credentials.
+  telegramEnabled        Boolean @default(true)
+  telegramNotifyRecovery Boolean @default(true)
+  // info = every alert, warning = warning and critical, critical = critical only
+  telegramMinSeverity    String  @default("info")
+  // Minutes before the same device+category may send again, so a flapping link
+  // cannot turn into a flood of messages
+  telegramCooldownMinutes Int    @default(5)
+  // ---- Email (SMTP) ----
+  // emailNotification is the recipient; the rest is how we connect to the mail server.
+  emailNotification     String  @default("")
+  emailEnabled          Boolean @default(false)
+  emailNotifyRecovery   Boolean @default(true)
+  emailMinSeverity      String  @default("warning")
+  emailCooldownMinutes  Int     @default(5)
+  smtpHost              String  @default("smtp.gmail.com")
+  smtpPort              Int     @default(587)
+  smtpUser              String  @default("")
+  // Gmail App Password. Never serialized back to the browser.
+  smtpPassword          String  @default("")
+  // Shown as the sender; defaults to smtpUser when empty
+  emailFrom             String  @default("")
+  sessionTimeoutMinutes Int     @default(30)
+  lastGlobalBackup      String?
+  ruckusOneUrl          String  @default("https://asia.ruckus.cloud")
+}
+
+// One row per device per poll. Feeds the Dashboard and Statistics charts.
+model TelemetrySample {
+  id             Int    @id @default(autoincrement())
+  deviceId       String
+  takenAt        String // local-time string
+  takenAtMs      BigInt // epoch ms, for range queries and pruning
+  cpu            Int
+  ram            Int
+  temp           Int
+  pingMs         Float
+  trafficInMbps  Float
+  trafficOutMbps Float
+  status         String
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([takenAtMs])
+  @@index([deviceId, takenAtMs])
+}

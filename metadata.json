@@ -1,0 +1,6 @@
+{
+  "name": "NetMonitor - Enterprise Network & Wireless AP Monitoring System",
+  "description": "Enterprise Web-Based Network Device and Wireless Access Point Monitoring and Management System (Cisco DNA Center & PRTG style) with telemetry, interactive topology, port matrix, alarms, and RBAC.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
